@@ -1,0 +1,9 @@
+{
+  "name": "pr-review",
+  "version": "0.1.0",
+  "description": "PR review agents specializing in comments, tests, error handling, type design, code quality, and code simplification. Fork of Anthropic's pr-review-toolkit.",
+  "author": {
+    "name": "ONREZA",
+    "email": "support@onreza.ru"
+  }
+}

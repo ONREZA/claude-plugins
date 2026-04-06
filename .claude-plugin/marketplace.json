@@ -1,0 +1,23 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "onreza-claude-plugins",
+  "version": "0.1.0",
+  "description": "ONREZA's Claude Code plugin marketplace — internal toolkits for code review, development workflows and project-specific automation",
+  "owner": {
+    "name": "ONREZA",
+    "email": "support@onreza.ru"
+  },
+  "plugins": [
+    {
+      "name": "pr-review",
+      "description": "PR review agents specializing in comments, tests, error handling, type design, code quality, and code simplification. Fork of Anthropic's pr-review-toolkit with ONREZA-specific extensions.",
+      "version": "0.1.0",
+      "author": {
+        "name": "ONREZA",
+        "email": "support@onreza.ru"
+      },
+      "source": "./plugins/pr-review",
+      "category": "productivity"
+    }
+  ]
+}
