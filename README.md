@@ -6,7 +6,7 @@ Internal Claude Code plugin marketplace for ONREZA. Contains forks of upstream A
 
 | Plugin | Description |
 |--------|-------------|
-| [`pr-review`](./plugins/pr-review) | Fork of Anthropic's `pr-review-toolkit`. Specialized agents for code review, comments, tests, error handling, type design, and simplification. |
+| [`pr-review`](./plugins/pr-review) | Specialized PR review agents for code, comments, tests, error handling, type design, UX, performance, and security — plus a `findings-triager` that filters false positives and separates pre-existing from PR-introduced issues. Fork of Anthropic's `pr-review-toolkit` with extensions. |
 
 ## Installation
 
