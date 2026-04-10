@@ -1,7 +1,7 @@
 ---
 description: "Comprehensive PR review using specialized agents with triage and immediate fixes"
 argument-hint: "[review-aspects]"
-allowed-tools: ["Bash", "Glob", "Grep", "Read", "Task"]
+allowed-tools: ["Bash", "Glob", "Grep", "Read", "Task", "AskUserQuestion"]
 ---
 
 # Comprehensive PR Review
@@ -9,6 +9,23 @@ allowed-tools: ["Bash", "Glob", "Grep", "Read", "Task"]
 Run a comprehensive pull request review using multiple specialized agents, each focusing on a different aspect of code quality. After agents finish, **always** run the triager to filter false positives, then act on the cleaned findings according to the rules below.
 
 **Review Aspects (optional):** "$ARGUMENTS"
+
+## Agent Models
+
+Each agent runs on a specific model based on task complexity:
+
+| Agent | Model | Complexity | Upgrade to opus when... |
+|-------|-------|------------|------------------------|
+| `code-reviewer` | **opus** | Deep analysis, CLAUDE.md compliance | — |
+| `security-reviewer` | **opus** | Critical security analysis | — |
+| `findings-triager` | **opus** | Complex filtering and verification | — |
+| `performance-reviewer` | **sonnet** | N+1, renders, bundle analysis | **Complex SQL query plans, memory leaks, algorithmic optimization** |
+| `type-design-analyzer` | **sonnet** | Type system review | — |
+| `silent-failure-hunter` | **sonnet** | Error handling patterns | — |
+| `pr-test-analyzer` | **sonnet** | Test coverage analysis | — |
+| `comment-analyzer` | **sonnet** | Comment accuracy | — |
+| `ux-reviewer` | **sonnet** | UI/UX review | — |
+| `code-simplifier` | **sonnet** | Code polish (post-fix) | — |
 
 ## Review Workflow
 
@@ -50,13 +67,50 @@ Don't run every agent on every PR — pick the ones whose scope intersects the d
 
 If `$ARGUMENTS` specifies aspects explicitly (e.g. `review-pr ux security`), run only those.
 
-### 4. Launch Review Agents in Parallel
+### 4. Propose Review Plan to User
 
-Launch all applicable agents in **parallel** via the Task tool — single message with multiple Task tool calls. This is faster and the triager handles overlap. Do not run sequentially unless the user explicitly asks for it.
+After determining which agents are applicable, **present the plan to the user and ask for confirmation**.
+
+Format:
+```markdown
+## PR Review Plan
+
+Based on the changes in this PR, I propose running the following agents:
+
+| Agent | Model | Purpose |
+|-------|-------|---------|
+| code-reviewer | opus | General code quality and CLAUDE.md compliance |
+| security-reviewer | opus | Security vulnerabilities (auth, input handling detected) |
+| ... | ... | ... |
+
+**Estimated cost:** ~X tokens (approximate)
+```
+
+**Consider upgrading to opus:**
+- `performance-reviewer`: if PR contains **complex SQL query plans** (multi-table joins, index optimization), **memory leak analysis** (complex async chains, closures), or **algorithmic optimization**
+
+Then ask using AskUserQuestion:
+
+**Question:** "Confirm review plan"
+- **Options:**
+  1. "Run as proposed" (Recommended) — run all proposed agents
+  2. "Modify agents" — let me select which agents to run
+  3. "Upgrade all to opus" — run everything on opus for maximum depth
+  4. "Downgrade to sonnet" — run on sonnet for faster/cheaper review
+  5. "Cancel" — abort the review
+
+If user selects "Modify agents", show a multi-select question with all applicable agents checked by default, allowing them to:
+- Uncheck agents to skip
+- Check additional agents
+- Change models (opus/sonnet) per agent
+
+### 5. Launch Review Agents in Parallel
+
+Once confirmed, launch all selected agents in **parallel** via the Task tool — single message with multiple Task tool calls. Pass the selected model to each agent.
 
 Each agent receives the same context: the diff scope, file list, and any additional instructions from `$ARGUMENTS`.
 
-### 5. Triage — MANDATORY
+### 6. Triage — MANDATORY
 
 After all reviewer agents return, **always** launch `findings-triager` via the Task tool, passing it the combined raw findings from every agent. Do not skip this step, even if only one agent ran.
 
@@ -66,7 +120,7 @@ The triager will:
 - Separate **introduced by this PR** from **pre-existing** issues
 - Return a clean, prioritized report
 
-### 6. Present the Triaged Report
+### 7. Present the Triaged Report
 
 Show the triager's report to the user with this structure:
 
@@ -84,7 +138,7 @@ Show the triager's report to the user with this structure:
 - ... (collapsed by default — just count, expand on request)
 ```
 
-### 7. Take Action — Rules
+### 8. Take Action — Rules
 
 After presenting the report, **act on findings according to these rules without asking** for the actionable section:
 
