@@ -19,29 +19,59 @@ By default, review unstaged changes from `git diff`. The user may specify differ
 
 **Code Quality**: Evaluate significant issues like code duplication, missing critical error handling, accessibility problems, and inadequate test coverage.
 
-## Issue Confidence Scoring
+## Issue Severity & Confidence
 
-Rate each issue from 0-100:
+Each finding has a **severity** and a **confidence** (0-100).
 
-- **0-25**: Likely false positive or pre-existing issue
-- **26-50**: Minor nitpick not explicitly in CLAUDE.md
-- **51-75**: Valid but low-impact issue
-- **76-90**: Important issue requiring attention
-- **91-100**: Critical bug or explicit CLAUDE.md violation
+**Severity** — three levels only:
+- `critical` — bug that will impact users or break correctness; explicit CLAUDE.md violation with real consequences
+- `important` — real issue that should be addressed before merge
+- `minor` — valid issue with low impact (style nudges that CLAUDE.md actually mandates, small clarity wins, etc.)
 
-**Only report issues with confidence ≥ 80**
+**Confidence** — only report findings with confidence ≥ 70. Below that, suppress. The triager will fact-check anything you emit.
 
-## Output Format
+Do **not** decide whether something is "worth fixing" — that is the user's call. Your job is to find real issues at all severities.
 
-Start by listing what you're reviewing. For each high-confidence issue provide:
+## Output Contract
 
-- Clear description and confidence score
-- File path and line number
-- Specific CLAUDE.md rule or bug explanation
-- Concrete fix suggestion
+Write **only** to `$FINDINGS_PATH/code-reviewer.md`. Do not return finding text in your response — return a one-line confirmation only.
 
-Group issues by severity (Critical: 90-100, Important: 80-89).
+Use exactly this structure (markdown with YAML frontmatter):
 
-If no high-confidence issues exist, confirm the code meets standards with a brief summary.
+```markdown
+---
+agent: code-reviewer
+model: <opus|sonnet>
+status: completed
+findings_count: <N>
+scope: "<one-line description of what you reviewed>"
+---
 
-Be thorough but filter aggressively - quality over quantity. Focus on issues that truly matter.
+# Findings
+
+## 1. <Brief title>
+
+- **severity:** critical | important | minor
+- **confidence:** 0-100
+- **file:** path/to/file.ext
+- **lines:** 42-44
+- **category:** bug | code-quality | claude-md-violation
+
+### Description
+What is wrong, in plain language. Cite specific code if helpful.
+
+### Impact
+What goes wrong because of this. Who sees it (users, devs, ops). How often.
+
+### Suggested fix
+Concrete change. Code snippet if obviously helpful.
+
+## 2. <next finding>
+...
+```
+
+If you find no issues, write the file with `status: no-findings`, `findings_count: 0`, and an empty `# Findings` section. **Never skip writing the file** — the triager looks for it by path.
+
+If you cannot complete the review (missing file, ambiguous scope, etc.), write `status: error` and a short `# Notes` section explaining why.
+
+Be thorough but filter at the confidence threshold — quality over quantity. The triager handles dedup and false-positive removal; your job is to surface real findings of any severity.

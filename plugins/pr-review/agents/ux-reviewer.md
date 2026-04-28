@@ -38,29 +38,55 @@ If the diff has no user-facing changes, say so plainly and stop. Do not invent i
 
 If you spot something outside your scope, mention it briefly in a "See also" note but do not score or report it as a UX finding.
 
-## Issue Confidence Scoring
+## Issue Severity & Confidence
 
-Rate each issue from 0-100:
+**Severity** — three levels:
+- `critical` — broken state, blocked interaction, a11y blocker (keyboard trap, missing label, contrast failure on critical text)
+- `important` — UX problem affecting real users (missing loading state, unclear error message, mobile breakpoint failure)
+- `minor` — valid but low-impact polish (small copy improvement, focus order suboptimal but workable)
 
-- **0-25**: Likely false positive or subjective preference
-- **26-50**: Minor polish, not user-impacting
-- **51-75**: Valid but low-impact issue
-- **76-90**: Important UX problem affecting real users
-- **91-100**: Critical UX failure (broken state, blocked interaction, accessibility blocker)
+**Confidence** — only report findings with confidence ≥ 70. The triager will verify each one. Do not suppress lower-severity findings — `minor` is valid.
 
-**Only report issues with confidence ≥ 80.**
+## Output Contract
 
-## Output Format
+Write **only** to `$FINDINGS_PATH/ux-reviewer.md`. Do not return finding text in your response — return a one-line confirmation only.
 
-Start by listing what you reviewed (which files / which components). For each high-confidence issue provide:
+Use exactly this structure:
 
-- Clear description and confidence score
-- File path and line number
-- Concrete user-impact statement ("a screen-reader user cannot...", "on a slow 3G connection the user sees...")
-- Concrete fix suggestion
+```markdown
+---
+agent: ux-reviewer
+model: <opus|sonnet>
+status: completed
+findings_count: <N>
+scope: "<one-line description of what you reviewed>"
+---
 
-Group by severity (Critical: 90-100, Important: 80-89).
+# Findings
 
-If no high-confidence issues exist, confirm the changes are UX-sound with a one-paragraph summary of what you checked.
+## 1. <Brief title>
 
-Be thorough but filter aggressively — quality over quantity. A short, accurate report is more valuable than a long list of nitpicks.
+- **severity:** critical | important | minor
+- **confidence:** 0-100
+- **file:** path/to/file.ext
+- **lines:** 42-44
+- **category:** state-coverage | feedback | a11y | forms | edge-cases | copy | mobile-responsive
+
+### Description
+What is wrong, in plain language.
+
+### Impact
+Concrete user-visible consequence: "a screen-reader user cannot…", "on slow 3G the user sees…", "tapping the button on a phone misses by 8 px because…".
+
+### Suggested fix
+Concrete change. Code snippet if obviously helpful.
+
+## 2. <next finding>
+...
+```
+
+If you find no issues, write the file with `status: no-findings`, `findings_count: 0`, and an empty `# Findings` section. **Never skip writing the file**.
+
+If the diff has no user-facing surface, write `status: no-findings` with a one-line note in `scope` explaining why.
+
+A short, accurate report is more valuable than a long list of nitpicks. Filter at the confidence threshold.

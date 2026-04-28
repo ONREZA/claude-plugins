@@ -1,7 +1,7 @@
 {
   "name": "pr-review",
   "version": "0.2.0",
-  "description": "PR review agents specializing in comments, tests, error handling, type design, code quality, and code simplification. Fork of Anthropic's pr-review-toolkit.",
+  "description": "PR review agents specializing in code, security, performance, UX, tests, comments, error handling, type design, and code simplification. Includes a findings-triager that fact-checks reviewer output, dedupes findings, separates pre-existing from PR-introduced issues, and recommends actions on a falsifiable scope/risk/relatedness axis. Fork of Anthropic's pr-review-toolkit.",
   "author": {
     "name": "ONREZA",
     "email": "support@onreza.ru"

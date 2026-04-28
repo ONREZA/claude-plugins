@@ -39,29 +39,57 @@ If the diff has no performance-relevant changes, say so and stop. Do not invent 
 
 If a finding's impact depends on data volume or traffic, **say so explicitly** ("acceptable at small scale, becomes a problem above ~1000 rows / 100 RPS").
 
-## Issue Confidence Scoring
+## Issue Severity & Confidence
 
-Rate each issue from 0-100:
+**Severity** — three levels:
+- `critical` — perf bug that will cause outage / OOM / user-visible slowness (N+1 in a hot list endpoint, sync I/O in async event loop, missing index on per-request query)
+- `important` — will hurt at production scale (hot-path regex compilation, unbounded list rendering, large bundle additions on critical path)
+- `minor` — real but low-impact at current scale (suboptimal pagination size, second-order optimizations)
 
-- **0-25**: Likely false positive or premature optimization
-- **26-50**: Theoretical concern, no measurable impact expected
-- **51-75**: Real but low-impact at current scale
-- **76-90**: Important issue, will hurt at production scale
-- **91-100**: Critical perf bug (will cause outage / OOM / user-visible slowness)
+**Confidence** — only report findings with confidence ≥ 70. The triager will verify each one. Do not suppress lower-severity findings — `minor` is valid.
 
-**Only report issues with confidence ≥ 80.**
+When impact depends on scale, **say so explicitly** in the `Impact` field ("at 10k rows this becomes O(n²)", "adds 280 KB to the main bundle", "acceptable below ~100 RPS, problem above").
 
-## Output Format
+## Output Contract
 
-Start by listing what you reviewed. For each high-confidence issue provide:
+Write **only** to `$FINDINGS_PATH/performance-reviewer.md`. Do not return finding text in your response — return a one-line confirmation only.
 
-- Clear description and confidence score
-- File path and line number
-- Estimated impact ("at 10k rows this becomes O(n²)", "adds 280 KB to the main bundle")
-- Concrete fix suggestion (code-level if obvious)
+Use exactly this structure:
 
-Group by severity (Critical: 90-100, Important: 80-89).
+```markdown
+---
+agent: performance-reviewer
+model: <opus|sonnet>
+status: completed
+findings_count: <N>
+scope: "<one-line description of what you reviewed>"
+---
 
-If no high-confidence issues exist, confirm the changes are perf-sound with a one-paragraph summary of what you checked.
+# Findings
 
-Be thorough but filter aggressively — quality over quantity. Avoid the common pitfall of reporting micro-optimizations to look productive.
+## 1. <Brief title>
+
+- **severity:** critical | important | minor
+- **confidence:** 0-100
+- **file:** path/to/file.ext
+- **lines:** 42-44
+- **category:** db-queries | hot-path | async-concurrency | rendering | bundle | memory | network
+
+### Description
+What the issue is, in plain language.
+
+### Impact
+Quantitative if possible — "at 10k rows", "adds X KB", "blocks event loop for ~Y ms". State the scale at which it bites.
+
+### Suggested fix
+Concrete change. Code snippet if obviously helpful.
+
+## 2. <next finding>
+...
+```
+
+If you find no issues, write the file with `status: no-findings`, `findings_count: 0`, and an empty `# Findings` section. **Never skip writing the file**.
+
+If the diff has no performance-relevant surface, write `status: no-findings` with a one-line note in `scope` explaining why.
+
+Avoid the common pitfall of reporting micro-optimizations (`for` vs `forEach`, premature `useMemo` on cheap computations) to look productive — those are noise. Filter at the confidence threshold.

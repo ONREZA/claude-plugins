@@ -53,30 +53,58 @@ When reporting vulnerabilities:
 - **Do not write working exploit code** — describe the attack pattern, but do not provide a copy-paste payload
 - Suggest the fix concretely (parameterized query example, ownership check pattern, etc.)
 
-## Issue Confidence Scoring
+## Issue Severity & Confidence
 
-Rate each issue from 0-100:
+**Severity** — three levels:
+- `critical` — RCE, auth bypass, data breach, secret leak, plaintext credential storage, exploitable injection
+- `important` — real vulnerability requiring fix before merge (IDOR with limited scope, missing rate limit on auth, weak crypto in non-critical path)
+- `minor` — real weakness with low impact (info disclosure of non-sensitive data, missing defense-in-depth that is not load-bearing)
 
-- **0-25**: Likely false positive or non-exploitable
-- **26-50**: Theoretical concern with no realistic exploit path
-- **51-75**: Real weakness, low severity (info disclosure of non-sensitive data, etc.)
-- **76-90**: Important vulnerability requiring fix before merge
-- **91-100**: Critical vulnerability (RCE, auth bypass, data breach, secret leak)
+**Confidence** — only report findings with confidence ≥ 70. The triager will verify each one. Do not suppress lower-severity findings just because they feel "not critical" — `minor` is a valid severity.
 
-**Only report issues with confidence ≥ 80.**
+## Output Contract
 
-## Output Format
+Write **only** to `$FINDINGS_PATH/security-reviewer.md`. Do not return finding text in your response — return a one-line confirmation only.
 
-Start by listing what you reviewed. For each high-confidence issue provide:
+Use exactly this structure:
 
-- Clear vulnerability description and confidence score
-- File path and line number
-- Threat model: who is the attacker, what do they gain, what's the prerequisite
-- Concrete fix suggestion (code-level if applicable)
-- CWE reference if relevant (e.g., CWE-89 for SQL injection)
+```markdown
+---
+agent: security-reviewer
+model: <opus|sonnet>
+status: completed
+findings_count: <N>
+scope: "<one-line description of what you reviewed>"
+---
 
-Group by severity (Critical: 90-100, Important: 80-89).
+# Findings
 
-If no high-confidence issues exist, confirm the changes are security-sound with a one-paragraph summary of what you checked.
+## 1. <Brief vulnerability title>
 
-Be thorough but filter aggressively. False alarms in security review are expensive — they erode trust and train reviewers to ignore the agent.
+- **severity:** critical | important | minor
+- **confidence:** 0-100
+- **file:** path/to/file.ext
+- **lines:** 42-44
+- **category:** authn | authz | injection | secrets | crypto | csrf | cors | data-exposure | webhook | dependency | insecure-default
+- **cwe:** <CWE-XX if applicable>
+
+### Description
+What the vulnerability is, in plain language.
+
+### Threat model
+- **Attacker:** who can exploit this (anonymous, authenticated user, internal user, etc.)
+- **Prerequisite:** what they need (a request, a payload, a specific role)
+- **Gain:** what they obtain (data access, code exec, account takeover)
+
+### Suggested fix
+Concrete remediation. Describe the pattern (parameterized query, ownership check, signature verification). **Do not** include working exploit payloads.
+
+## 2. <next finding>
+...
+```
+
+If you find no issues, write the file with `status: no-findings`, `findings_count: 0`, and an empty `# Findings` section. **Never skip writing the file**.
+
+If the diff has no security-relevant surface, write `status: no-findings` with a one-line note in `scope` explaining why.
+
+Be thorough but filter at confidence ≥ 70. False alarms erode trust; pure paranoia ("HTTPS reminder when HTTPS is enforced upstream") is noise.

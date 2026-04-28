@@ -1,304 +1,162 @@
-# PR Review Toolkit
+# PR Review
 
-A comprehensive collection of specialized agents for thorough pull request review, covering code comments, test coverage, error handling, type design, code quality, and code simplification.
+Comprehensive PR review for Claude Code: nine specialized reviewer agents plus a triager that fact-checks their output, dedupes findings, separates pre-existing from PR-introduced issues, and recommends actions on a falsifiable axis.
 
-## Overview
+The plugin is built around a single command: **`/pr-review:review-pr`**. Individual agents can also be invoked directly when needed.
 
-This plugin bundles 6 expert review agents that each focus on a specific aspect of code quality. Use them individually for targeted reviews or together for comprehensive PR analysis.
+## How it works
+
+1. `/pr-review:review-pr` inspects the diff and proposes a plan (which agents, on which model). User confirms.
+2. A run directory is created at `.claude/tmp/pr-review/run-<timestamp>/findings/` (and self-ignored from git).
+3. All selected reviewers run **in parallel**. Each writes its findings to `<agent>.md` in the run directory. They do **not** return text — only confirmation.
+4. The **findings-triager** reads every file in the directory, verifies each finding against the actual code (reproducing in `/tmp/` when needed), dedupes, categorizes, and writes `triaged.md`.
+5. The orchestrator presents the triaged report and acts according to the per-finding `action` label.
+
+The user never sees raw reviewer output — only the triaged report. The triager is what makes the review trustworthy.
+
+## Command
+
+```
+/pr-review:review-pr                  # full review
+/pr-review:review-pr ux security      # specific aspects
+/pr-review:review-pr perf
+/pr-review:review-pr simplify         # post-fix polish (separate flow)
+```
+
+| Aspect | Agent | Covers |
+|--------|-------|--------|
+| `code` | code-reviewer | CLAUDE.md compliance, bugs, general quality |
+| `tests` | pr-test-analyzer | Test coverage and quality |
+| `comments` | comment-analyzer | Comment accuracy and rot |
+| `errors` | silent-failure-hunter | Error handling, silent failures, fallbacks |
+| `types` | type-design-analyzer | Type design, invariants, encapsulation |
+| `ux` | ux-reviewer | User-facing UI/UX, a11y, states, copy |
+| `perf` | performance-reviewer | N+1, indexes, renders, bundle, hot paths |
+| `security` | security-reviewer | AuthN/Z, injection, secrets, crypto, CSRF |
+| `simplify` | code-simplifier | Final polish — separate from review pipeline |
+| `all` | (everything except `simplify`) | Default |
 
 ## Agents
 
-### 1. comment-analyzer
-**Focus**: Code comment accuracy and maintainability
+### Reviewers — write findings to the run directory
 
-**Analyzes:**
-- Comment accuracy vs actual code
-- Documentation completeness
-- Comment rot and technical debt
-- Misleading or outdated comments
+Each reviewer has the same output contract: it writes a structured markdown file to `$FINDINGS_PATH/<agent>.md` and returns only a one-line confirmation. Severity is uniformly `critical | important | minor`. Confidence is a 0-100 self-assessment (only findings ≥ 70 are emitted).
 
-**When to use:**
-- After adding documentation
-- Before finalizing PRs with comment changes
-- When reviewing existing comments
+| Agent | Model | What it looks for |
+|-------|-------|-------------------|
+| **code-reviewer** | opus | Project-guideline compliance (CLAUDE.md), real bugs, code quality |
+| **security-reviewer** | opus | Auth/authz gaps, injection sinks, IDOR, secret leaks, weak crypto, CSRF, webhook signature verification, insecure defaults |
+| **performance-reviewer** | sonnet (upgrade to opus for SQL plans, memory leaks, algorithmic work) | N+1, missing indexes, sync I/O in async, unbounded loops, missing pagination, render thrash, bundle bloat, missing caching |
+| **ux-reviewer** | sonnet | Interaction states (loading/empty/error), a11y (ARIA, focus, contrast), form ergonomics, copy quality, mobile/responsive |
+| **silent-failure-hunter** | sonnet | Empty/broad catches, swallowed errors, unjustified fallbacks, retries without observability, error promotion to silent success |
+| **type-design-analyzer** | sonnet | Weak encapsulation, unenforced invariants, illegal states reachable, inconsistent mutation guards |
+| **pr-test-analyzer** | sonnet | Missing coverage on critical paths, edge cases, error branches; tests overfit to implementation |
+| **comment-analyzer** | sonnet | Factually wrong, outdated, misleading, or redundant comments |
 
-**Triggers:**
-```
-"Check if the comments are accurate"
-"Review the documentation I added"
-"Analyze comments for technical debt"
-```
+### Triager — fact-checks and decides actions
 
-### 2. pr-test-analyzer
-**Focus**: Test coverage quality and completeness
+**`findings-triager`** (opus) reads every reviewer file, verifies each finding by Read/Grep, runs `git blame` to separate introduced-by-PR from pre-existing, builds reproductions in `/tmp/` when truth depends on runtime behavior, uses context7/WebFetch for library API claims, dedupes by location+symptom, and writes `triaged.md`.
 
-**Analyzes:**
-- Behavioral vs line coverage
-- Critical gaps in test coverage
-- Test quality and resilience
-- Edge cases and error conditions
+**The triager does not curate.** It removes only:
+1. Hallucinations (cited code does not exist or does not match)
+2. Exact duplicates (merged into one record, all source agents listed)
+3. Findings that contradict an explicit `CLAUDE.md` rule (with verbatim citation)
 
-**When to use:**
-- After creating a PR
-- When adding new functionality
-- To verify test thoroughness
+It does **not** drop findings for being "minor", "subjective", "stylistic", or "out of scope". `minor` is a severity, not grounds for rejection — the user decides what to fix.
 
-**Triggers:**
-```
-"Check if the tests are thorough"
-"Review test coverage for this PR"
-"Are there any critical test gaps?"
-```
+### Recommendation matrix — no time estimates
 
-### 3. silent-failure-hunter
-**Focus**: Error handling and silent failures
+Instead of hours/days/story points (which agents reliably misjudge), the triager scores each finding on three falsifiable axes:
 
-**Analyzes:**
-- Silent failures in catch blocks
-- Inadequate error handling
-- Inappropriate fallback behavior
-- Missing error logging
+- **scope** — `trivial` / `local` / `multi-file` / `cross-module`
+- **risk** — `safe` / `moderate` / `high` (likelihood the fix breaks something)
+- **relatedness** — `tight` / `near` / `tangential` (connection to the PR's goal)
 
-**When to use:**
-- After implementing error handling
-- When reviewing try/catch blocks
-- Before finalizing PRs with error handling
+These are derived mechanically from the diff and the proposed fix. The recommendation follows from a fixed matrix:
 
-**Triggers:**
-```
-"Review the error handling"
-"Check for silent failures"
-"Analyze catch blocks in this PR"
-```
+| Scope | Risk | Related | Action |
+|---|---|---|---|
+| trivial | safe/moderate | any | `fix-now` |
+| local | safe/moderate | tight/near | `fix-now` |
+| local | safe/moderate | tangential | `fix-in-pr` |
+| local | high | any | `separate-pr` |
+| multi-file | safe | tight | `fix-now` |
+| multi-file | safe | near | `fix-in-pr` |
+| multi-file | moderate/high | any | `separate-pr` |
+| multi-file | any | tangential | `separate-pr` |
+| cross-module | any | any | `separate-pr` |
 
-### 4. type-design-analyzer
-**Focus**: Type design quality and invariants
+For `separate-pr` and `track`, the triager always proposes a one-line PR/issue title.
 
-**Analyzes:**
-- Type encapsulation (rated 1-10)
-- Invariant expression (rated 1-10)
-- Type usefulness (rated 1-10)
-- Invariant enforcement (rated 1-10)
+### Action rules
 
-**When to use:**
-- When introducing new types
-- During PR creation with data models
-- When refactoring type designs
+- **`fix-now`** — applied automatically by the orchestrator
+- **`fix-in-pr`** — user is asked once whether to fold in
+- **`separate-pr`** — never auto-applied; user can open a follow-up branch / write a tracker issue / leave alone
+- **`track`** — needs design first; only a suggested issue title
 
-**Triggers:**
-```
-"Review the UserAccount type design"
-"Analyze type design in this PR"
-"Check if this type has strong invariants"
-```
+**Pre-existing** findings are never auto-fixed even when the action is `fix-now`-shaped — pre-existing fixes are always a scope decision, so the user is asked.
 
-### 5. code-reviewer
-**Focus**: General code review for project guidelines
+### code-simplifier — separate flow
 
-**Analyzes:**
-- CLAUDE.md compliance
-- Style violations
-- Bug detection
-- Code quality issues
+`code-simplifier` (sonnet) is **not** part of the standard review pipeline. It runs on demand after fixes are applied (`/pr-review:review-pr simplify`). It applies edits directly rather than writing to `$FINDINGS_PATH`. It reads `CLAUDE.md` and nearby code to follow the project's actual conventions — it does not impose a stack-specific style.
 
-**When to use:**
-- After writing or modifying code
-- Before committing changes
-- Before creating pull requests
+## Workflow examples
 
-**Triggers:**
-```
-"Review my recent changes"
-"Check if everything looks good"
-"Review this code before I commit"
-```
-
-### 6. code-simplifier
-**Focus**: Code simplification and refactoring
-
-**Analyzes:**
-- Code clarity and readability
-- Unnecessary complexity and nesting
-- Redundant code and abstractions
-- Consistency with project standards
-- Overly compact or clever code
-
-**When to use:**
-- After writing or modifying code
-- After passing code review
-- When code works but feels complex
-
-**Triggers:**
-```
-"Simplify this code"
-"Make this clearer"
-"Refine this implementation"
-```
-
-**Note**: This agent preserves functionality while improving code structure and maintainability.
-
-## Usage Patterns
-
-### Individual Agent Usage
-
-Simply ask questions that match an agent's focus area, and Claude will automatically trigger the appropriate agent:
+**Before committing:**
 
 ```
-"Can you check if the tests cover all edge cases?"
-→ Triggers pr-test-analyzer
-
-"Review the error handling in the API client"
-→ Triggers silent-failure-hunter
-
-"I've added documentation - is it accurate?"
-→ Triggers comment-analyzer
+1. write code
+2. /pr-review:review-pr code errors
+3. read triaged report → fix-now applied automatically; decide on rest
+4. commit
 ```
 
-### Comprehensive PR Review
-
-For thorough PR review, ask for multiple aspects:
+**Before opening a PR:**
 
 ```
-"I'm ready to create this PR. Please:
-1. Review test coverage
-2. Check for silent failures
-3. Verify code comments are accurate
-4. Review any new types
-5. General code review"
+1. stage all changes
+2. /pr-review:review-pr
+3. read triaged report → fix-now applied; decide on pre-existing
+4. re-run affected aspects to verify
+5. gh pr create
 ```
 
-This will trigger all relevant agents to analyze different aspects of your PR.
+**After human PR feedback:**
 
-### Proactive Review
+```
+1. apply requested changes
+2. /pr-review:review-pr <relevant aspects>
+3. verify
+4. push
+```
 
-Claude may proactively use these agents based on context:
+## Run directory
 
-- **After writing code** → code-reviewer
-- **After adding docs** → comment-analyzer
-- **Before creating PR** → Multiple agents as appropriate
-- **After adding types** → type-design-analyzer
+```
+.claude/tmp/pr-review/run-<timestamp>/
+└── findings/
+    ├── code-reviewer.md
+    ├── security-reviewer.md
+    ├── performance-reviewer.md
+    ├── ...
+    └── triaged.md          # written by findings-triager
+```
+
+The directory is auto-created on each run. `.claude/tmp/.gitignore` (`*`) is created automatically so artifacts never leak into commits, even if the user has not gitignored `.claude/`. Runs older than 7 days are auto-cleaned at the start of each new run.
 
 ## Installation
 
-Install from your personal marketplace:
+From the marketplace:
 
-```bash
-/plugins
-# Find "pr-review-toolkit"
-# Install
+```
+/plugin marketplace add ONREZA/claude-plugins
+/plugin install pr-review@onreza-claude-plugins
 ```
 
-Or add manually to settings if needed.
+## Direct agent invocation
 
-## Agent Details
-
-### Confidence Scoring
-
-Agents provide confidence scores for their findings:
-
-**comment-analyzer**: Identifies issues with high confidence in accuracy checks
-
-**pr-test-analyzer**: Rates test gaps 1-10 (10 = critical, must add)
-
-**silent-failure-hunter**: Flags severity of error handling issues
-
-**type-design-analyzer**: Rates 4 dimensions on 1-10 scale
-
-**code-reviewer**: Scores issues 0-100 (91-100 = critical)
-
-**code-simplifier**: Identifies complexity and suggests simplifications
-
-### Output Formats
-
-All agents provide structured, actionable output:
-- Clear issue identification
-- Specific file and line references
-- Explanation of why it's a problem
-- Suggestions for improvement
-- Prioritized by severity
-
-## Best Practices
-
-### When to Use Each Agent
-
-**Before Committing:**
-- code-reviewer (general quality)
-- silent-failure-hunter (if changed error handling)
-
-**Before Creating PR:**
-- pr-test-analyzer (test coverage check)
-- comment-analyzer (if added/modified comments)
-- type-design-analyzer (if added/modified types)
-- code-reviewer (final sweep)
-
-**After Passing Review:**
-- code-simplifier (improve clarity and maintainability)
-
-**During PR Review:**
-- Any agent for specific concerns raised
-- Targeted re-review after fixes
-
-### Running Multiple Agents
-
-You can request multiple agents to run in parallel or sequentially:
-
-**Parallel** (faster):
-```
-"Run pr-test-analyzer and comment-analyzer in parallel"
-```
-
-**Sequential** (when one informs the other):
-```
-"First review test coverage, then check code quality"
-```
-
-## Tips
-
-- **Be specific**: Target specific agents for focused review
-- **Use proactively**: Run before creating PRs, not after
-- **Address critical issues first**: Agents prioritize findings
-- **Iterate**: Run again after fixes to verify
-- **Don't over-use**: Focus on changed code, not entire codebase
-
-## Troubleshooting
-
-### Agent Not Triggering
-
-**Issue**: Asked for review but agent didn't run
-
-**Solution**:
-- Be more specific in your request
-- Mention the agent type explicitly
-- Reference the specific concern (e.g., "test coverage")
-
-### Agent Analyzing Wrong Files
-
-**Issue**: Agent reviewing too much or wrong files
-
-**Solution**:
-- Specify which files to focus on
-- Reference the PR number or branch
-- Mention "recent changes" or "git diff"
-
-## Integration with Workflow
-
-This plugin works great with:
-- **build-validator**: Run build/tests before review
-- **Project-specific agents**: Combine with your custom agents
-
-**Recommended workflow:**
-1. Write code → **code-reviewer**
-2. Fix issues → **silent-failure-hunter** (if error handling)
-3. Add tests → **pr-test-analyzer**
-4. Document → **comment-analyzer**
-5. Review passes → **code-simplifier** (polish)
-6. Create PR
-
-## Contributing
-
-Found issues or have suggestions? These agents are maintained in:
-- User agents: `~/.claude/agents/`
-- Project agents: `.claude/agents/` in claude-cli-internal
+For targeted use cases, agents can be invoked directly via the Task tool with their `pr-review:` prefix (e.g. `pr-review:security-reviewer`). The default workflow is the orchestrated `/pr-review:review-pr` command — direct invocation skips the triager.
 
 ## License
 
@@ -306,8 +164,4 @@ MIT
 
 ## Author
 
-Daisy (daisy@anthropic.com)
-
----
-
-**Quick Start**: Just ask for review and the right agent will trigger automatically!
+ONREZA — `support@onreza.ru`

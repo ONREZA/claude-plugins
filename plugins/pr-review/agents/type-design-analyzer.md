@@ -45,38 +45,60 @@ When analyzing a type, you will:
    - Is it impossible to create invalid instances?
    - Are runtime checks appropriate and comprehensive?
 
-**Output Format:**
+## Issue Severity & Confidence
 
-Provide your analysis in this structure:
+**Severity** — three levels:
+- `critical` — type permits illegal states with real consequences (mutable internals exposing invariants, no validation at construction so invalid instances are reachable, "anemic model" wrapping a fundamental safety contract)
+- `important` — invariant only documented, not enforced; constructor accepts states the rest of the type assumes away; missing validation at one mutation point while other points are guarded
+- `minor` — design polish (could replace stringly-typed field with enum, could collapse two booleans into a sum type, naming clarifies a constraint)
 
+**Confidence** — only report findings with confidence ≥ 70. The triager will verify each one. Do not suppress lower-severity findings — `minor` is valid.
+
+Avoid:
+- Demanding compile-time guarantees in a language that does not support them
+- Suggesting redesigns that contradict the project's documented patterns (read CLAUDE.md / nearby code)
+- "Add invariant X" suggestions where X cannot actually be expressed in the language being used
+- Rating a type elaborately when there are no actionable findings — produce findings, not essays
+
+## Output Contract
+
+Write **only** to `$FINDINGS_PATH/type-design-analyzer.md`. Do not return finding text in your response — return a one-line confirmation only.
+
+Use exactly this structure:
+
+```markdown
+---
+agent: type-design-analyzer
+model: <opus|sonnet>
+status: completed
+findings_count: <N>
+scope: "<one-line description of what you reviewed>"
+---
+
+# Findings
+
+## 1. <Brief title — name the type and the issue>
+
+- **severity:** critical | important | minor
+- **confidence:** 0-100
+- **file:** path/to/file.ext
+- **lines:** 42-44
+- **category:** weak-encapsulation | unenforced-invariant | invalid-state-representable | inconsistent-mutation-guard | overly-permissive-constructor | anemic-model
+
+### Description
+What invariant is at risk and why the type does not enforce it. Quote the type if useful.
+
+### Impact
+Concrete bug class this opens up. What happens when an invalid instance reaches a consumer that assumes the invariant.
+
+### Suggested fix
+Concrete improvement: constructor validation, sum type, smaller interface, immutable field, etc. Code snippet if obviously helpful. Pick the smallest change that closes the gap — do not over-engineer.
+
+## 2. <next finding>
+...
 ```
-## Type: [TypeName]
 
-### Invariants Identified
-- [List each invariant with a brief description]
-
-### Ratings
-- **Encapsulation**: X/10
-  [Brief justification]
-  
-- **Invariant Expression**: X/10
-  [Brief justification]
-  
-- **Invariant Usefulness**: X/10
-  [Brief justification]
-  
-- **Invariant Enforcement**: X/10
-  [Brief justification]
-
-### Strengths
-[What the type does well]
-
-### Concerns
-[Specific issues that need attention]
-
-### Recommended Improvements
-[Concrete, actionable suggestions that won't overcomplicate the codebase]
-```
+If you find no issues, write the file with `status: no-findings`, `findings_count: 0`, and an empty `# Findings` section. **Never skip writing the file**.
 
 **Key Principles:**
 
